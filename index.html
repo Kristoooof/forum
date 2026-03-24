@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supabase Fórum Chat</title>
+    <style>
+        /* --- ALAP STÍLUSOK --- */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f4f9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 400px;
+        }
+
+        /* Auth oldal stílusa */
+        .auth-container input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+
+        .auth-container button {
+            width: 100%;
+            padding: 10px;
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 5px;
+        }
+
+        .auth-container button:hover {
+            background-color: #2563eb;
+        }
+
+        .auth-container .switch-mode {
+            background: none;
+            color: #3b82f6;
+            border: none;
+            cursor: pointer;
+            margin-top: 10px;
+            text-decoration: underline;
+        }
+
+        h2 { text-align: center; color: #333; }
+
+        /* Chat oldal stílusa */
+        .chat-container {
+            display: none; /* Alapból rejtett */
+            width: 100%;
+            max-width: 600px;
+            height: 80vh;
+            display: flex;
+            flex-direction: column;
+            padding: 0;
+        }
+
+        .chat-header {
+            background-color: #3b82f6;
+            color: white;
+            padding: 15px;
+            border-radius: 10px 10px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logout-btn {
+            background-color: #ef4444;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        #messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+            background-color: #f9fafb;
+            border: 1px solid #e5e7eb;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .message {
+            padding: 8px 12px;
+            border-radius: 8px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+
+        .message.mine {
+            align-self: flex-end;
+            background-color: #3b82f6;
+            color: white;
+        }
+
+        .message.others {
+            align-self: flex-start;
+            background-color: #e5e7eb;
+            color: black;
+        }
+
+        .message span {
+            font-size: 0.75rem;
+            opacity: 0.7;
+            display: block;
+            margin-bottom: 2px;
+        }
+
+        .chat-input-area {
+            display: flex;
+            padding: 10px;
+            background-color: white;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        #messageInput {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-right: 10px;
+        }
+
+        .send-btn {
+            padding: 10px 20px;
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- BEJELENTKEZŐ / REGISZTRÁCIÓS DOBOZ -->
+    <div id="authScreen" class="container auth-container">
+        <h2 id="authTitle">Bejelentkezés</h2>
+        <input type="email" id="email" placeholder="Email cím" required>
+        <input type="password" id="password" placeholder="Jelszó" required>
+        <button onclick="handleAuth()" id="authBtn">Belépés</button>
+        <button class="switch-mode" onclick="toggleMode()">Még nincs fiókom? Regisztrálok</button>
+        <p id="authError" style="color:red; font-size:0.9rem; text-align:center;"></p>
+    </div>
+
+    <!-- CHAT KÉPERNYŐ -->
+    <div id="chatScreen" class="container chat-container" style="display:none;">
+        <div class="chat-header">
+            <h3>Fórum Chat</h3>
+            <button class="logout-btn" onclick="logout()">Kilépés</button>
+        </div>
+        <div id="messages">
+            <!-- Ide töltődnek be az üzenetek -->
+        </div>
+        <div class="chat-input-area">
+            <input type="text" id="messageInput" placeholder="Írj üzenetet..." onkeypress="handleEnter(event)">
+            <button class="send-btn" onclick="sendMessage()">Küldés</button>
+        </div>
+    </div>
+
+    <!-- SUPABASE KÖNYVTÁR -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <script>
+        // --- KONFIGURÁCIÓ ---
+        // IDE ÍRD BE A SAJÁT SUPABASE ADATAIDAT!
+        const SUPABASE_URL = 'https://a-te-projekt-url-ed.supabase.co'; 
+        const SUPABASE_KEY = 'a-te-anon-kulcsod';
+
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let isLoginMode = true;
+        let currentUser = null;
+
+        // --- HITELESÍTÉS (AUTH) ---
+
+        // Módváltás (Belépés / Regisztráció)
+        function toggleMode() {
+            isLoginMode = !isLoginMode;
+            document.getElementById('authTitle').innerText = isLoginMode ? "Bejelentkezés" : "Regisztráció";
+            document.getElementById('authBtn').innerText = isLoginMode ? "Belépés" : "Regisztráció";
+            document.getElementById('authError').innerText = "";
+        }
+
+        // Bejelentkezés vagy Regisztráció kezelése
+        async function handleAuth() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const errorP = document.getElementById('authError');
+
+            if (!email || !password) {
+                errorP.innerText = "Kérlek tölts ki minden mezőt!";
+                return;
+            }
+
+            try {
+                if (isLoginMode) {
+                    // Bejelentkezés
+                    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+                    if (error) throw error;
+                    // A session változás automatikusan elindítja a chat betöltését (lásd lejjebb: onAuthStateChange)
+                } else {
+                    // Regisztráció
+                    const { data, error } = await supabase.auth.signUp({ email, password });
+                    if (error) throw error;
+                    alert("Sikeres regisztráció! Most már bejelentkezhetsz.");
+                    toggleMode(); // Visszavált login módra
+                }
+            } catch (error) {
+                errorP.innerText = error.message;
+            }
+        }
+
+        // Kilépés
+        async function logout() {
+            await supabase.auth.signOut();
+            // Az oldal újratöltődik vagy a UI változik
+        }
+
+        // --- CHAT FUNKCIÓK ---
+
+        // Session ellenőrzése oldalbetöltéskor
+        async function checkSession() {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                currentUser = session.user;
+                showChat();
+            } else {
+                showAuth();
+            }
+        }
+
+        // Auth állapot figyelése (pl. bejelentkezés után automatikusan vált)
+        supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'SIGNED_IN') {
+                currentUser = session.user;
+                showChat();
+            }
+            if (event === 'SIGNED_OUT') {
+                currentUser = null;
+                showAuth();
+            }
+        });
+
+        function showChat() {
+            document.getElementById('authScreen').style.display = 'none';
+            document.getElementById('chatScreen').style.display = 'flex';
+            loadMessages();
+            subscribeToMessages();
+        }
+
+        function showAuth() {
+            document.getElementById('authScreen').style.display = 'block';
+            document.getElementById('chatScreen').style.display = 'none';
+            document.getElementById('email').value = '';
+            document.getElementById('password').value = '';
+        }
+
+        // Üzenet küldése
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const content = input.value.trim();
+
+            if (!content) return;
+
+            const { error } = await supabase
+                .from('messages')
+                .insert([{
+                    content: content,
+                    user_id: currentUser.id,
+                    username: currentUser.email // Vagy kérhetnél nevet regisztrációkor
+                }]);
+
+            if (error) {
+                console.error('Hiba küldéskor:', error);
+                alert("Hiba történt az üzenet küldése közben.");
+            } else {
+                input.value = ''; // Mező törlése
+            }
+        }
+
+        // Enter gomb kezelése
+        function handleEnter(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        // Üzenetek betöltése
+        async function loadMessages() {
+            const { data, error } = await supabase
+                .from('messages')
+                .select('*')
+                .order('created_at', { ascending: true });
+
+            if (!error) {
+                renderMessages(data);
+            }
+        }
+
+        // Valós idejű figyelés (Realtime)
+        function subscribeToMessages() {
+            const channel = supabase
+                .channel('public:messages')
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+                    const newMessage = payload.new;
+                    appendMessage(newMessage);
+                })
+                .subscribe();
+        }
+
+        // Üzenetek megjelenítése (HTML generálás)
+        function renderMessages(messages) {
+            const container = document.getElementById('messages');
+            container.innerHTML = ''; // Ürítés
+            messages.forEach(msg => appendMessage(msg));
+            container.scrollTop = container.scrollHeight; // Görgetés az aljára
+        }
+
+        function appendMessage(msg) {
+            const container = document.getElementById('messages');
+            const div = document.createElement('div');
+            
+            // Megnézzük, hogy a mi üzenetünk-e
+            const isMine = currentUser && msg.user_id === currentUser.id;
+            div.className = `message ${isMine ? 'mine' : 'others'}`;
+
+            const time = new Date(msg.created_at).toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' });
+            
+            // Ha nincs username, mutassuk az ID részt vagy csak "Vendég"
+            const displayName = msg.username || 'Ismeretlen';
+
+            div.innerHTML = `<span>${displayName} - ${time}</span>${msg.content}`;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // Induláskor ellenőrizzük a session-t
+        checkSession();
+
+    </script>
+</body>
+</html>
