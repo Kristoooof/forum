@@ -190,7 +190,8 @@
         const SUPABASE_URL = 'https://xmfabwdejjxvxtrnwhie.supabase.co'; 
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhtZmFid2Rlamp4dnh0cm53aGllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzNDY5ODEsImV4cCI6MjA4OTkyMjk4MX0.ZRbczYz2pzm8yQU79WhSiZHGcvIVg7rXhEsMLtbogoQ';
 
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        // JAVÍTÁS: A kliens nevét 'supabaseClient'-re változtattam, hogy ne ütközzön a könyvtárral
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         let isLoginMode = true;
         let currentUser = null;
@@ -219,12 +220,12 @@
             try {
                 if (isLoginMode) {
                     // Bejelentkezés
-                    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+                    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
                     if (error) throw error;
-                    // A session változás automatikusan elindítja a chat betöltését (lásd lejjebb: onAuthStateChange)
+                    // A session változás automatikusan elindítja a chat betöltését
                 } else {
                     // Regisztráció
-                    const { data, error } = await supabase.auth.signUp({ email, password });
+                    const { data, error } = await supabaseClient.auth.signUp({ email, password });
                     if (error) throw error;
                     alert("Sikeres regisztráció! Most már bejelentkezhetsz.");
                     toggleMode(); // Visszavált login módra
@@ -236,15 +237,14 @@
 
         // Kilépés
         async function logout() {
-            await supabase.auth.signOut();
-            // Az oldal újratöltődik vagy a UI változik
+            await supabaseClient.auth.signOut();
         }
 
         // --- CHAT FUNKCIÓK ---
 
         // Session ellenőrzése oldalbetöltéskor
         async function checkSession() {
-            const { data: { session } } = await supabase.auth.getSession();
+            const { data: { session } } = await supabaseClient.auth.getSession();
             if (session) {
                 currentUser = session.user;
                 showChat();
@@ -254,7 +254,7 @@
         }
 
         // Auth állapot figyelése (pl. bejelentkezés után automatikusan vált)
-        supabase.auth.onAuthStateChange((event, session) => {
+        supabaseClient.auth.onAuthStateChange((event, session) => {
             if (event === 'SIGNED_IN') {
                 currentUser = session.user;
                 showChat();
@@ -286,19 +286,19 @@
 
             if (!content) return;
 
-            const { error } = await supabase
+            const { error } = await supabaseClient
                 .from('messages')
                 .insert([{
                     content: content,
                     user_id: currentUser.id,
-                    username: currentUser.email // Vagy kérhetnél nevet regisztrációkor
+                    username: currentUser.email 
                 }]);
 
             if (error) {
                 console.error('Hiba küldéskor:', error);
                 alert("Hiba történt az üzenet küldése közben.");
             } else {
-                input.value = ''; // Mező törlése
+                input.value = ''; 
             }
         }
 
@@ -311,7 +311,7 @@
 
         // Üzenetek betöltése
         async function loadMessages() {
-            const { data, error } = await supabase
+            const { data, error } = await supabaseClient
                 .from('messages')
                 .select('*')
                 .order('created_at', { ascending: true });
@@ -323,7 +323,7 @@
 
         // Valós idejű figyelés (Realtime)
         function subscribeToMessages() {
-            const channel = supabase
+            const channel = supabaseClient
                 .channel('public:messages')
                 .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
                     const newMessage = payload.new;
@@ -332,25 +332,22 @@
                 .subscribe();
         }
 
-        // Üzenetek megjelenítése (HTML generálás)
+        // Üzenetek megjelenítése
         function renderMessages(messages) {
             const container = document.getElementById('messages');
-            container.innerHTML = ''; // Ürítés
+            container.innerHTML = ''; 
             messages.forEach(msg => appendMessage(msg));
-            container.scrollTop = container.scrollHeight; // Görgetés az aljára
+            container.scrollTop = container.scrollHeight;
         }
 
         function appendMessage(msg) {
             const container = document.getElementById('messages');
             const div = document.createElement('div');
             
-            // Megnézzük, hogy a mi üzenetünk-e
             const isMine = currentUser && msg.user_id === currentUser.id;
             div.className = `message ${isMine ? 'mine' : 'others'}`;
 
             const time = new Date(msg.created_at).toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' });
-            
-            // Ha nincs username, mutassuk az ID részt vagy csak "Vendég"
             const displayName = msg.username || 'Ismeretlen';
 
             div.innerHTML = `<span>${displayName} - ${time}</span>${msg.content}`;
